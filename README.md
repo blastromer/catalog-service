@@ -77,12 +77,12 @@ If your main.go file uses any external packages (such as the logger package in t
 **Step 4: Run the Application**
 
 To run the main.go file directly, use the following command:
-**go run cmd/<specific-subservices>/main.go**
+**go run cmd/specific-subservices/main.go**
 
 **Step 5: Build the Application**
 
 To build your Go application into an executable file, run the following command:
-**go build -o cmd/<specific-subservices>**
+**go build -o cmd/specific-subservices**
 
 This will create an executable file named catalog-service in your project directory. You can then run the application directly using:
-**./cmd/<specific-subservices>**
+**./cmd/specific-subservices**
