@@ -55,3 +55,30 @@ Use these steps to clone from SourceTree, our client for using the repository co
 4. Open the directory you just created to see your repository’s files.
 
 Now that you're more familiar with your Bitbucket repository, go ahead and add a new file locally. You can [push your change back to Bitbucket with SourceTree](https://confluence.atlassian.com/x/iqyBMg), or you can [add, commit,](https://confluence.atlassian.com/x/8QhODQ) and [push from the command line](https://confluence.atlassian.com/x/NQ0zDQ).
+
+## Setup a project
+
+**Step 1: Install Go**
+Ensure that Go is installed on your system. You can check if Go is installed by running:
+**go version**
+
+If Go is not installed, download and install it from the official Go website: [-> (https://golang.org/dl/)].
+
+**Step 2: Initialize a Go module in this directory:**
+**go mod init catalog-service**
+This will create a go.mod file that tracks your dependencies.
+
+**Step 3: Install Dependencies (if any)**
+If your main.go file uses any external packages (such as the logger package in the example), make sure to install them:
+**go get <package-name>**
+
+**Step 4: Run the Application**
+To run the main.go file directly, use the following command:
+**go run cmd/<specific-subservices>/main.go**
+
+**Step 5: Build the Application**
+To build your Go application into an executable file, run the following command:
+**go build -o cmd/<specific-subservices>**
+
+This will create an executable file named catalog-service in your project directory. You can then run the application directly using:
+**./cmd/<specific-subservices>**
