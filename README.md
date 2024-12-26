@@ -1,3 +1,15 @@
+## Developed by Romer Necesario
+
+## Catalog Services Overview
+This repository contains the Catalog Services for managing product data, inventory, and synchronization with an Ecommerce site. It is designed to handle catalog operations, including importing, updating, and exporting product information.
+
+**Features:**
+
+1. Product Catalog Management: Add, update, and delete product entries.
+2. Inventory Synchronization: Sync product data with third-party platforms.
+3. Automated Reports: Generate sales and inventory reports.
+4. API Integration: Interface with external services via REST API.
+
 **Edit a file, create a new file, and clone from Bitbucket in under 2 minutes**
 
 When you're done, you can delete the content in this README and update the file with details for others getting started with your repository.
