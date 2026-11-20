@@ -1,0 +1,19 @@
+image: golang:1.24
+
+pipelines:
+  default:
+    - step:
+        name: Test & Build
+        caches:
+          - go
+        script:
+          - go version
+          - go mod download
+          - go test ./...
+          - go build ./cmd/product
+          - go build ./cmd/category
+          - go build ./cmd/attribute
+
+definitions:
+  caches:
+    go: /go/pkg/mod

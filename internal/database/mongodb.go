@@ -2,49 +2,56 @@ package database
 
 import (
 	"context"
-	"log"
-	"os"
+	"fmt"
 	"time"
 
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
-var Collection *mongo.Collection
+// Store wraps a MongoDB client and the active collection for a service.
+type Store struct {
+	Client     *mongo.Client
+	Database   *mongo.Database
+	Collection *mongo.Collection
+}
 
-// Init initializes the MongoDB client and connects to the database
-func Init(dbName string) error {
-	// Load the .env file
-	err := godotenv.Load(".env")
+// Connect establishes a MongoDB connection, pings the server, and returns a Store.
+func Connect(ctx context.Context, uri, databaseName, collectionName string) (*Store, error) {
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
-		return err
+		return nil, fmt.Errorf("connect mongo: %w", err)
 	}
 
-	// Retrieve MongoDB connection details from environment variables
-	mongoURI 		:= string(os.Getenv("MONGO_URI"))
-	databaseName 	:= string(os.Getenv("MONGO_DATABASE"))
-	collectionName 	:= dbName
-
-	// Create a new MongoDB client
-	client, err 	:= mongo.NewClient(options.Client().ApplyURI(mongoURI))
-	if err != nil {
-		log.Fatalf("Failed to create MongoDB client: %v", err)
-		return err
-	}
-
-	// Connect to MongoDB
-	ctx, cancel 	:= context.WithTimeout(context.Background(), 10*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
-		return err
+	if err := client.Ping(pingCtx, readpref.Primary()); err != nil {
+		_ = client.Disconnect(context.Background())
+		return nil, fmt.Errorf("ping mongo: %w", err)
 	}
 
-	// Assign the collection
-	Collection = client.Database(databaseName).Collection(collectionName)
-	return nil
+	db := client.Database(databaseName)
+	return &Store{
+		Client:     client,
+		Database:   db,
+		Collection: db.Collection(collectionName),
+	}, nil
+}
+
+// Close disconnects the MongoDB client.
+func (s *Store) Close(ctx context.Context) error {
+	if s == nil || s.Client == nil {
+		return nil
+	}
+	return s.Client.Disconnect(ctx)
+}
+
+// Ping verifies the database connection is still healthy.
+func (s *Store) Ping(ctx context.Context) error {
+	if s == nil || s.Client == nil {
+		return fmt.Errorf("mongo client is not initialized")
+	}
+	return s.Client.Ping(ctx, readpref.Primary())
 }

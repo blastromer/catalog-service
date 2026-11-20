@@ -1,27 +1,40 @@
 package main
 
 import (
+	"context"
 	"log"
-	"micro-services/catalog/internal/database"
-	"micro-services/catalog/internal/routes"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"micro-services/catalog/internal/config"
+	"micro-services/catalog/internal/database"
+	"micro-services/catalog/internal/platform/server"
+	"micro-services/catalog/internal/product"
+	"micro-services/catalog/internal/routes"
 )
 
 func main() {
-	// Initialize the MongoDB connection
-	if err := database.Init("products"); err != nil {
-		log.Fatalf("Database initialization failed: %v", err)
+	cfg, err := config.Load("product-service", ":2001", "products")
+	if err != nil {
+		log.Fatalf("config error: %v", err)
 	}
 
-	// Initialize the Gin router
-	r := gin.Default()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Register product-related routes
-	routes.RegisterProductRoutes(r)
+	store, err := database.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase, cfg.CollectionName)
+	if err != nil {
+		log.Fatalf("database error: %v", err)
+	}
 
-	// Start the server on port 2001
-	if err := r.Run(":2001"); err != nil {
-		log.Fatalf("Server startup failed: %v", err)
+	deps := server.Dependencies{Config: cfg, Store: store}
+	router := server.NewRouter(deps)
+
+	repo := product.NewRepository(store.Collection)
+	service := product.NewService(repo, cfg.QueryTimeout, cfg.DefaultLimit, cfg.MaxLimit)
+	handler := product.NewHandler(service)
+	routes.RegisterProductRoutes(router, handler)
+
+	if err := server.Run(deps, router); err != nil {
+		log.Fatalf("server error: %v", err)
 	}
 }
