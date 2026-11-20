@@ -1,92 +1,46 @@
 package product
 
 import (
-	"context" // Import context package
-	"log"     // Import log package
-	"net/http"
 	"strconv"
-	"time" // Import time package
 
-	"micro-services/catalog/internal/database"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options" // Import options package
+	"micro-services/catalog/internal/platform/apierror"
+	"micro-services/catalog/internal/platform/response"
+
 	"github.com/gin-gonic/gin"
 )
 
-func GetAllProducts(c *gin.Context) {
-	// Retrieve the page number and limit from query parameters (default limit = 100)
-	pageStr		:= c.DefaultQuery("page", "1")
-	limitStr	:= c.DefaultQuery("limit", "100")
+// Handler exposes product HTTP endpoints.
+type Handler struct {
+	service *Service
+}
 
-	page, err 	:= strconv.Atoi(pageStr)
-	if err != nil || page <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
-		return
-	}
+// NewHandler constructs a product handler.
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
 
-	limit, err 	:= strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
-		return
-	}
-
-	// Skip documents based on page number and limit
-	skip 		:= (page - 1) * limit
-
-	// Create context with timeout to avoid long requests
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Fetch products from the database, using skip and limit for pagination
-	var products []Product
-	cursor, err := database.Collection.Find(ctx, bson.M{}, options.Find().SetSkip(int64(skip)).SetLimit(int64(limit))) // Ensure options is used here
+// GetAllProducts handles GET /api/products.
+func (h *Handler) GetAllProducts(c *gin.Context) {
+	result, params, err := h.service.ListProducts(c.Request.Context(), c.Query("page"), c.Query("limit"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+		response.Fail(c, err)
 		return
 	}
-	defer func() {
-		if err := cursor.Close(ctx); err != nil {
-			log.Printf("Failed to close cursor: %v", err)
-		}
-	}()
-
-	// Decode the results into the products slice
-	if err := cursor.All(ctx, &products); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
-		return
-	}
-
-	// Handle case where no products are found
-	if len(products) == 0 {
-		c.JSON(http.StatusOK, gin.H{"message": "No products found"})
-		return
-	}
-
-	// Return the fetched products
-	c.JSON(http.StatusOK, products)
+	response.OKPaged(c, result.Items, params.Page, params.Limit, result.Total)
 }
 
-// GetProductByID handles fetching a product by ID
-func GetProductByID(c *gin.Context) {
-    productIDStr := c.Param("productId")
-    productID, err := strconv.Atoi(productIDStr)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
-        return
-    }
+// GetProductByID handles GET /api/products/:productId.
+func (h *Handler) GetProductByID(c *gin.Context) {
+	productID, err := strconv.Atoi(c.Param("productId"))
+	if err != nil {
+		response.Fail(c, apierror.Validation("invalid productId"))
+		return
+	}
 
-    var product Product
-    err = database.Collection.FindOne(c, bson.M{"productId": productID}).Decode(&product)
-    if err != nil {
-        if err == mongo.ErrNoDocuments {
-            c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-        } else {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-        }
-        return
-    }
-
-    c.JSON(http.StatusOK, product)
+	product, err := h.service.GetProduct(c.Request.Context(), productID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, product)
 }
-

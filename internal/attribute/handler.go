@@ -1,74 +1,46 @@
 package attribute
 
 import (
-	// "context" // Import context package
-	// "log"     // Import log package
-	"net/http"
 	"strconv"
-	// "strings" // Add this line
-	// "time"    // Import time package
 
-	"micro-services/catalog/internal/database"
+	"micro-services/catalog/internal/platform/apierror"
+	"micro-services/catalog/internal/platform/response"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options" // Import options package
 )
 
-func GetAttributes(c *gin.Context) {
-	// Create a find options object with a limit of 10
-	findOptions := options.Find().SetLimit(10)
-
-	// Slice to hold the results
-	var attributes []Attribute
-
-	// Perform the query
-	cursor, err := database.Collection.Find(c, bson.M{}, findOptions)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch attributes"})
-		return
-	}
-	defer cursor.Close(c)
-
-	// Iterate through the cursor and decode the documents
-	for cursor.Next(c) {
-		var attribute Attribute
-		if err := cursor.Decode(&attribute); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode attribute"})
-			return
-		}
-		attributes = append(attributes, attribute)
-	}
-
-	// Check for cursor errors
-	if err := cursor.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Cursor error"})
-		return
-	}
-
-	// Return the result as JSON
-	c.JSON(http.StatusOK, attributes)
+// Handler exposes attribute HTTP endpoints.
+type Handler struct {
+	service *Service
 }
 
-func GetAttributeByAttributeId(c *gin.Context) {
-	attributeIdStr := c.Param("attributeId")
-	attributeId, err := strconv.Atoi(attributeIdStr)
+// NewHandler constructs an attribute handler.
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
+
+// GetAttributes handles GET /api/attributes.
+func (h *Handler) GetAttributes(c *gin.Context) {
+	result, params, err := h.service.ListAttributes(c.Request.Context(), c.Query("page"), c.Query("limit"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		response.Fail(c, err)
+		return
+	}
+	response.OKPaged(c, result.Items, params.Page, params.Limit, result.Total)
+}
+
+// GetAttributeByAttributeID handles GET /api/attributes/:attributeId.
+func (h *Handler) GetAttributeByAttributeID(c *gin.Context) {
+	attributeID, err := strconv.Atoi(c.Param("attributeId"))
+	if err != nil {
+		response.Fail(c, apierror.Validation("invalid attributeId"))
 		return
 	}
 
-	var attribute Attribute
-	err = database.Collection.FindOne(c, bson.M{"_id": attributeId}).Decode(&attribute)
+	attribute, err := h.service.GetAttribute(c.Request.Context(), attributeID)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-		}
+		response.Fail(c, err)
 		return
 	}
-
-	c.JSON(http.StatusOK, attribute)
+	response.OK(c, attribute)
 }

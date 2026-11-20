@@ -1,27 +1,40 @@
 package main
 
 import (
+	"context"
 	"log"
-	"micro-services/catalog/internal/database"
-	"micro-services/catalog/internal/routes"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"micro-services/catalog/internal/category"
+	"micro-services/catalog/internal/config"
+	"micro-services/catalog/internal/database"
+	"micro-services/catalog/internal/platform/server"
+	"micro-services/catalog/internal/routes"
 )
 
 func main() {
-	// Initialize the MongoDB connection
-	if err := database.Init("categories"); err != nil {
-		log.Fatalf("Database initialization failed: %v", err)
+	cfg, err := config.Load("category-service", ":2002", "categories")
+	if err != nil {
+		log.Fatalf("config error: %v", err)
 	}
 
-	// Initialize the Gin router
-	r := gin.Default()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Register product-related routes
-	routes.RegisterCategoryRoutes(r)
+	store, err := database.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase, cfg.CollectionName)
+	if err != nil {
+		log.Fatalf("database error: %v", err)
+	}
 
-	// Start the server on port 8082
-	if err := r.Run(":2002"); err != nil {
-		log.Fatalf("Server startup failed: %v", err)
+	deps := server.Dependencies{Config: cfg, Store: store}
+	router := server.NewRouter(deps)
+
+	repo := category.NewRepository(store.Collection)
+	service := category.NewService(repo, cfg.QueryTimeout, cfg.DefaultLimit, cfg.MaxLimit)
+	handler := category.NewHandler(service)
+	routes.RegisterCategoryRoutes(router, handler)
+
+	if err := server.Run(deps, router); err != nil {
+		log.Fatalf("server error: %v", err)
 	}
 }

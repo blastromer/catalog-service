@@ -1,0 +1,55 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  product-service:
+    build:
+      context: .
+      args:
+        SERVICE: product
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: catalog
+      MONGO_COLLECTION: products
+      HTTP_ADDR: ":2001"
+    ports:
+      - "2001:2001"
+    depends_on:
+      - mongo
+
+  category-service:
+    build:
+      context: .
+      args:
+        SERVICE: category
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: catalog
+      MONGO_COLLECTION: categories
+      HTTP_ADDR: ":2002"
+    ports:
+      - "2002:2002"
+    depends_on:
+      - mongo
+
+  attribute-service:
+    build:
+      context: .
+      args:
+        SERVICE: attribute
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: catalog
+      MONGO_COLLECTION: attributes
+      HTTP_ADDR: ":2003"
+    ports:
+      - "2003:2003"
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:

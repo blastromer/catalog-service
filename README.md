@@ -1,95 +1,127 @@
-## Developed by Romer Necesario
+# Catalog Service
 
-## Catalog Services Overview
-This repository contains the Catalog Services for managing product data, inventory, and synchronization with an Ecommerce site. It is designed to handle catalog operations, including importing, updating, and exporting product information.
+Go microservices for product catalog reads: **products**, **categories**, and **attributes**.
 
-**Features:**
+Built as production-minded read APIs over MongoDB — layered packages, typed errors, pagination metadata, health checks, graceful shutdown, Docker, and CI.
 
-1. Product Catalog Management: Add, update, and delete product entries.
-2. Inventory Synchronization: Sync product data with third-party platforms.
-3. Automated Reports: Generate sales and inventory reports.
-4. API Integration: Interface with external services via REST API.
-
-**Edit a file, create a new file, and clone from Bitbucket in under 2 minutes**
-
-When you're done, you can delete the content in this README and update the file with details for others getting started with your repository.
-
-*We recommend that you open this README in another tab as you perform the tasks below. You can [watch our video](https://youtu.be/0ocf7u76WSo) for a full demo of all the steps in this tutorial. Open the video in a new tab to avoid leaving Bitbucket.*
+**Author:** Romer Necesario
 
 ---
 
-## Edit a file
+## Why this exists
 
-You’ll start by editing this README file to learn how to edit a file in Bitbucket.
+Ecommerce catalog data is split across collections that change independently. This repo keeps three small services with a shared platform layer so each API can scale and deploy on its own without duplicating HTTP, config, or Mongo wiring.
 
-1. Click **Source** on the left side.
-2. Click the README.md link from the list of files.
-3. Click the **Edit** button.
-4. Delete the following text: *Delete this line to make a change to the README from Bitbucket.*
-5. After making your change, click **Commit** and then **Commit** again in the dialog. The commit page will open and you’ll see the change you just made.
-6. Go back to the **Source** page.
+## Architecture
 
----
+```
+cmd/
+  product/     # :2001
+  category/    # :2002
+  attribute/   # :2003
+internal/
+  config/      # env-based configuration
+  database/    # Mongo connect, ping, close
+  platform/    # pagination, API errors, response envelope, HTTP server
+  product|category|attribute/
+               # handler → service → repository
+```
 
-## Create a file
+**Design choices that matter:**
 
-Next, you’ll add a new file to this repository.
+| Concern | Approach |
+| --- | --- |
+| Boundaries | Handlers parse HTTP; services own validation/rules; repositories own Mongo |
+| Safety | Category “smart query” only accepts a **whitelist** of fields (`categoryId`, `parent`, `sort`, `name`, `domain`, `meta.slug`) |
+| Contracts | Consistent `{ data, pagination? }` / `{ error: { code, message } }` envelopes |
+| Ops | `/healthz`, `/readyz` (DB ping), request logging, SIGINT/SIGTERM graceful shutdown |
+| Testability | Repository interfaces + table-style unit tests without a live database |
 
-1. Click the **New file** button at the top of the **Source** page.
-2. Give the file a filename of **contributors.txt**.
-3. Enter your name in the empty file space.
-4. Click **Commit** and then **Commit** again in the dialog.
-5. Go back to the **Source** page.
+## API
 
-Before you move on, go ahead and explore the repository. You've already seen the **Source** page, but check out the **Commits**, **Branches**, and **Settings** pages.
+### Product service (`:2001`)
 
----
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/products?page=&limit=` | Paginated list + total count |
+| `GET` | `/api/products/:productId` | By business `productId` |
+| `GET` | `/healthz` | Liveness |
+| `GET` | `/readyz` | Readiness (Mongo ping) |
 
-## Clone a repository
+### Category service (`:2002`)
 
-Use these steps to clone from SourceTree, our client for using the repository command-line free. Cloning allows you to work on your files locally. If you don't yet have SourceTree, [download and install first](https://www.sourcetreeapp.com/). If you prefer to clone from the command line, see [Clone a repository](https://confluence.atlassian.com/x/4whODQ).
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/categories?page=&limit=` | Paginated list |
+| `GET` | `/api/categories/query?field=&value=` | Whitelisted filter |
+| `GET` | `/api/categories/:categoryId` | By `categoryId` |
 
-1. You’ll see the clone button under the **Source** heading. Click that button.
-2. Now click **Check out in SourceTree**. You may need to create a SourceTree account or log in.
-3. When you see the **Clone New** dialog in SourceTree, update the destination path and name if you’d like to and then click **Clone**.
-4. Open the directory you just created to see your repository’s files.
+### Attribute service (`:2003`)
 
-Now that you're more familiar with your Bitbucket repository, go ahead and add a new file locally. You can [push your change back to Bitbucket with SourceTree](https://confluence.atlassian.com/x/iqyBMg), or you can [add, commit,](https://confluence.atlassian.com/x/8QhODQ) and [push from the command line](https://confluence.atlassian.com/x/NQ0zDQ).
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/attributes?page=&limit=` | Paginated list |
+| `GET` | `/api/attributes/:attributeId` | By attribute `_id` |
 
-## Setup a project
+### Example response
 
-**Step 1: Install Go**
-Ensure that Go is installed on your system. You can check if Go is installed by running:
+```json
+{
+  "data": [{ "productId": 1001, "title": "Brake Pad Set" }],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 1284,
+    "totalPages": 26
+  }
+}
+```
 
-**go version**
+## Quick start
 
-If Go is not installed, download and install it from the official Go website: 
+```bash
+cp .env.example .env
+# set MONGO_URI / MONGO_DATABASE
 
-[->](https://golang.org/dl/).
+go mod tidy
+go test ./...
 
-**Step 2: Initialize a Go module in this directory:**
+go run ./cmd/product
+go run ./cmd/category
+go run ./cmd/attribute
+```
 
-**go mod init catalog-service**
-This will create a go.mod file that tracks your dependencies.
+Or with Docker:
 
-**Step 3: Install Dependencies (if any)**
+```bash
+docker compose up --build
+```
 
-If your main.go file uses any external packages (such as the logger package in the example), make sure to install them:
+## Configuration
 
-**go get <package-name>**
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MONGO_URI` | _(required)_ | Mongo connection string |
+| `MONGO_DATABASE` | `catalog` | Database name |
+| `MONGO_COLLECTION` | per-service default | Override collection |
+| `HTTP_ADDR` | `:2001` / `:2002` / `:2003` | Listen address |
+| `DEFAULT_PAGE_LIMIT` | `50` | Default page size |
+| `MAX_PAGE_LIMIT` | `200` | Hard cap on `limit` |
+| `MONGO_QUERY_TIMEOUT` | `10s` | Per-query deadline |
 
-**Step 4: Run the Application**
+## Development
 
-To run the main.go file directly, use the following command:
+```bash
+make test
+make build
+make docker-up
+```
 
-**go run cmd/specific-subservices/main.go**
+Bitbucket Pipelines runs `go test ./...` and builds all three binaries on every push.
 
-**Step 5: Build the Application**
+## Engineering notes
 
-To build your Go application into an executable file, run the following command:
-
-**go build -o cmd/specific-subservices**
-
-This will create an executable file named catalog-service in your project directory. You can then run the application directly using:
-
-**./cmd/specific-subservices**
+- Route order for categories registers `/query` **before** `/:categoryId` so the static path is reachable.
+- Empty lists return `data: []` with pagination, not a fake “no products” success message.
+- Mongo client uses `Connect` + `Ping` on startup and disconnects cleanly on shutdown.
+- `.env` is gitignored; use `.env.example` as the contract for local setup.

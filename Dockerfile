@@ -1,35 +1,26 @@
-# Step 1: Use the official Golang image as a base image
-FROM golang:1.20-alpine AS builder
+# syntax=docker/dockerfile:1
 
-# Step 2: Set the working directory in the container
-WORKDIR /app
+FROM golang:1.24-alpine AS builder
+WORKDIR /src
 
-# Step 3: Copy the Go module files
+RUN apk add --no-cache git ca-certificates
+
 COPY go.mod go.sum ./
+RUN go mod download
 
-# Step 4: Download Go dependencies
-RUN go mod tidy
-
-# Step 5: Copy the source code into the container
 COPY . .
 
-# Step 6: Build the Go binary
-RUN go build -o main .
+ARG SERVICE=product
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/service ./cmd/${SERVICE}
 
-# Step 7: Create a new, smaller image for production
-FROM alpine:latest
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata \
+	&& adduser -D -H -u 10001 appuser
 
-# Step 8: Install required libraries (if needed)
-RUN apk --no-cache add ca-certificates
+WORKDIR /app
+COPY --from=builder /out/service /app/service
 
-# Step 9: Set the working directory in the production image
-WORKDIR /root/
+USER appuser
+EXPOSE 2001 2002 2003
 
-# Step 10: Copy the binary from the builder stage to the production stage
-COPY --from=builder /app/main .
-
-# Step 11: Expose the port that the Go app will run on
-EXPOSE 8080
-
-# Step 12: Command to run the Go application
-CMD ["./main"]
+ENTRYPOINT ["/app/service"]

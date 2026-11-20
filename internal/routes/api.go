@@ -8,22 +8,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterProductRoutes sets up the routes for product-related endpoints
-func RegisterProductRoutes(r *gin.Engine) {
-	r.GET("/api/products", product.GetAllProducts)
-	r.GET("/api/products/:productId", product.GetProductByID)
+// RegisterProductRoutes sets up product endpoints.
+func RegisterProductRoutes(r *gin.Engine, handler *product.Handler) {
+	api := r.Group("/api")
+	{
+		api.GET("/products", handler.GetAllProducts)
+		api.GET("/products/:productId", handler.GetProductByID)
+	}
 }
 
-// RegisterCategoryRoutes sets up the routes for product-related endpoints
-func RegisterCategoryRoutes(r *gin.Engine) {
-	r.GET("/api/categories", category.GetCategories)
-	r.GET("/api/categories/:categoryId", category.GetCategoryByCategoryId)
-	r.GET("/api/categories/query", category.GetCategorySmartQuery)
+// RegisterCategoryRoutes sets up category endpoints.
+// Static paths are registered before parameterized paths so /query is reachable.
+func RegisterCategoryRoutes(r *gin.Engine, handler *category.Handler) {
+	api := r.Group("/api")
+	{
+		api.GET("/categories", handler.GetCategories)
+		api.GET("/categories/query", handler.GetCategorySmartQuery)
+		api.GET("/categories/:categoryId", handler.GetCategoryByCategoryID)
+	}
 }
 
-// RegisterAttributeRoutes sets up the routes for product-attribute endpoints
-func RegisterAttributeRoutes(r *gin.Engine) {
-	r.GET("/api/attributes", attribute.GetAttributes)
-	r.GET("/api/attributes/:attributeId", attribute.GetAttributeByAttributeId)
-	// r.GET("/api/categories/query", category.GetCategorySmartQuery)
+// RegisterAttributeRoutes sets up attribute endpoints.
+func RegisterAttributeRoutes(r *gin.Engine, handler *attribute.Handler) {
+	api := r.Group("/api")
+	{
+		api.GET("/attributes", handler.GetAttributes)
+		api.GET("/attributes/:attributeId", handler.GetAttributeByAttributeID)
+	}
 }

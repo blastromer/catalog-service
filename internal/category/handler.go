@@ -1,154 +1,56 @@
 package category
 
 import (
-	"context" // Import context package
-	"log"     // Import log package
-	"net/http"
 	"strconv"
-	"strings" // Add this line
-	"time"    // Import time package
 
-	"micro-services/catalog/internal/database"
+	"micro-services/catalog/internal/platform/apierror"
+	"micro-services/catalog/internal/platform/response"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options" // Import options package
 )
 
-func GetCategories(c *gin.Context) {
-	// Retrieve the page number and limit from query parameters (default limit = 100)
-	pageStr := c.DefaultQuery("page", "1")
-	limitStr := c.DefaultQuery("limit", "100")
-
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
-		return
-	}
-
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
-		return
-	}
-
-	// Skip documents based on page number and limit
-	skip := (page - 1) * limit
-
-	// Create context with timeout to avoid long requests
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Fetch products from the database, using skip and limit for pagination
-	var categories []Category
-	cursor, err := database.Collection.Find(ctx, bson.M{}, options.Find().SetSkip(int64(skip)).SetLimit(int64(limit))) // Ensure options is used here
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
-		return
-	}
-	defer func() {
-		if err := cursor.Close(ctx); err != nil {
-			log.Printf("Failed to close cursor: %v", err)
-		}
-	}()
-
-	// Decode the results into the products slice
-	if err := cursor.All(ctx, &categories); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
-		return
-	}
-
-	// Handle case where no products are found
-	if len(categories) == 0 {
-		c.JSON(http.StatusOK, gin.H{"message": "No products found"})
-		return
-	}
-
-	// Return the fetched products
-	c.JSON(http.StatusOK, categories)
+// Handler exposes category HTTP endpoints.
+type Handler struct {
+	service *Service
 }
 
-// GetProductByID handles fetching a product by ID
-func GetCategoryByCategoryId(c *gin.Context) {
-	categoryIdStr := c.Param("categoryId")
-	categoryId, err := strconv.Atoi(categoryIdStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
-		return
-	}
-
-	var category Category
-	err = database.Collection.FindOne(c, bson.M{"categoryId": categoryId}).Decode(&category)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, category)
+// NewHandler constructs a category handler.
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
-func GetCategorySmartQuery(c *gin.Context) {
-	queryField := c.DefaultQuery("field", "")
-	queryValue := c.DefaultQuery("value", "")
-
-	// Log the input parameters
-	log.Printf("Query parameters - field: %s, value: %s", queryField, queryValue)
-
-	// Start with an empty filter
-	filter := bson.M{}
-
-	if queryField != "" && queryValue != "" {
-		// Handle nested fields (like meta.slug)
-		if strings.Contains(queryField, ".") {
-			// For nested fields, we don't try to convert to int
-			filter[queryField] = queryValue
-		} else {
-			// For non-nested fields, try to convert to int if possible
-			if intValue, err := strconv.Atoi(queryValue); err == nil {
-				filter[queryField] = intValue
-			} else {
-				filter[queryField] = queryValue
-			}
-		}
-	}
-
-	// Add debug logging
-	log.Printf("Searching with filter: %+v", filter)
-	var categories []Category
-	cursor, err := database.Collection.Find(c, filter)
+// GetCategories handles GET /api/categories.
+func (h *Handler) GetCategories(c *gin.Context) {
+	result, params, err := h.service.ListCategories(c.Request.Context(), c.Query("page"), c.Query("limit"))
 	if err != nil {
-		log.Printf("Error fetching categories: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch categories"})
+		response.Fail(c, err)
 		return
 	}
-	defer cursor.Close(c)
+	response.OKPaged(c, result.Items, params.Page, params.Limit, result.Total)
+}
 
-	for cursor.Next(c) {
-		var category Category
-		if err := cursor.Decode(&category); err != nil {
-			log.Printf("Error decoding category: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode category"})
-			return
-		}
-		categories = append(categories, category)
-	}
-
-	if err := cursor.Err(); err != nil {
-		log.Printf("Cursor iteration error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Cursor iteration error"})
+// GetCategoryByCategoryID handles GET /api/categories/:categoryId.
+func (h *Handler) GetCategoryByCategoryID(c *gin.Context) {
+	categoryID, err := strconv.Atoi(c.Param("categoryId"))
+	if err != nil {
+		response.Fail(c, apierror.Validation("invalid categoryId"))
 		return
 	}
 
-	if len(categories) == 0 {
-		log.Printf("No documents found for filter: %+v", filter)
-		c.JSON(http.StatusNotFound, gin.H{"error": "No categories found"})
+	category, err := h.service.GetCategory(c.Request.Context(), categoryID)
+	if err != nil {
+		response.Fail(c, err)
 		return
 	}
+	response.OK(c, category)
+}
 
-	c.JSON(http.StatusOK, categories)
+// GetCategorySmartQuery handles GET /api/categories/query.
+func (h *Handler) GetCategorySmartQuery(c *gin.Context) {
+	categories, err := h.service.QueryCategories(c.Request.Context(), c.Query("field"), c.Query("value"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, categories)
 }
